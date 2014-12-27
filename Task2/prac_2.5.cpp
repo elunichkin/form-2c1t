@@ -408,7 +408,7 @@ bool LRAnalyzer::routine(string word) {
 
 
 int main(int argv, char **argc) {
-    if (argv != 1) {
+    if (argv != 2) {
         cerr << "Wrong number of input files. Should be exactly one.\n";
         return -1;
     }
