@@ -280,24 +280,16 @@ Set SetConstruction::closure(Set s, Grammar &g) {
 
 Set SetConstruction::goTo(Set I, int x, Grammar &g) {
     Set J;
-    //cerr << "Here we are. ";
-    //cerr << "x = " << Symbol::idToName[x] << "\n";
     for (State S : I) {
         int dotPos = S.getDotPosition();
-
-        //Debug::writeState(S);
 
         if (dotPos == S.to.size() - 1 || S.to[dotPos + 1] != x)
             continue;
         swap(S.to[dotPos], S.to[dotPos + 1]);
 
-        //cerr << "Let insert "; 
-        //Debug::writeState(S);
         J.insert(S);
     }
-    //cerr << "Size is " << J.size() << "\n";
     J = closure(J, g);
-    //cerr << "Size is " << J.size() << "\n";
     return closure(J, g);
 }
 
@@ -308,24 +300,17 @@ vector<Set> SetConstruction::items(Grammar &g) {
     st.insert(state);
     C.push_back(closure(st, g));
 
-    /*
-    cerr << "-----------||\n";
-    for (auto x : closure(st, g))
-    Debug::writeState(x);
-    cerr << "-----------||\n";
-    */
-
     bool changed = true;
 
     while (changed) {
         changed = false;
-        for (Set &I : C) {
+        for (int i = 0; i < C.size(); ++i) {
             vector<Set> toAdd;
             for (int id = 0; id < Symbol::lastUnusedId; ++id) {
                 if (Symbol::isSpecial(id))
                     continue;
 
-                auto J = goTo(I, id, g);
+                auto J = goTo(C[i], id, g);
                 if (J.size() != 0)
                     toAdd.push_back(J);
             }
@@ -339,34 +324,6 @@ vector<Set> SetConstruction::items(Grammar &g) {
     }
 
     return C;
-}
-
-void SetConstruction::writeConstructedSets(Grammar &g) {
-    auto C = items(g);
-
-    cerr << "Constructed sets: \n";
-
-    for (auto x : C) {
-        for (auto y : x)
-            Debug::writeState(y);
-        cerr << "-------------\n";
-    }
-}
-
-void Debug::writeState(const State &st) {
-    cerr << Symbol::idToName[st.from] << " -> ";
-    for (auto id : st.to)
-        cerr << Symbol::idToName[id] << " ";
-    cerr << "; " << Symbol::idToName[st.lookahead] << "\n";
-}
-
-string Debug::toString(const Action &act) {
-    switch (act.type) {
-    case ACCEPT: return "acc";
-    case REDUCE: return "red";
-    case SHIFT: return "shi" + to_string(act.shift);
-    default: return "err";
-    }
 }
 
 void LRAnalyzer::buildTable(Grammar &g) {
@@ -411,48 +368,6 @@ void LRAnalyzer::buildTable(Grammar &g) {
     }
 }
 
-void LRAnalyzer::writeTable() {
-    const int w = 7;
-    cerr << "Action Table: \n";
-    cerr << string(w, ' ');
-    for (int id = 0; id < Symbol::lastUnusedId; ++id)
-    if (id != Symbol::epsId && (Symbol::isTerminal(id) || id == Symbol::endId)) {
-        cerr << setw(w) << Symbol::idToName[id];
-    }
-    cerr << "\n";
-
-    for (int i = 0; i < (int)item.size(); ++i) {
-        cerr << setw(w) << i;
-        for (int id = 0; id < Symbol::lastUnusedId; ++id)
-        if (id != Symbol::epsId && (Symbol::isTerminal(id) || id == Symbol::endId)) {
-            cerr << setw(w) << Debug::toString(action[make_pair(i, id)]);
-        }
-        cerr << "\n";
-    }
-
-    cerr << "Goto Table:\n";
-
-    cerr << string(w, ' ');
-    for (int id = 0; id < Symbol::lastUnusedId; ++id)
-    if (!Symbol::isTerminal(id) && !Symbol::isSpecial(id)) {
-        cerr << setw(w) << Symbol::idToName[id];
-    }
-    cerr << "\n";
-
-    for (int i = 0; i < (int)item.size(); ++i) {
-        cerr << setw(w) << i;
-        for (int id = 0; id < Symbol::lastUnusedId; ++id)
-        if (!Symbol::isTerminal(id) && !Symbol::isSpecial(id)) {
-            if (goTo.count(make_pair(i, id)) == 1)
-                cerr << setw(w) << goTo[make_pair(i, id)];
-            else
-                cerr << setw(w) << ' ';
-        }
-        cerr << "\n";
-    }
-
-}
-
 bool LRAnalyzer::routine(string word) {
     word = word + "$";
     vector<int> w;
@@ -493,7 +408,7 @@ bool LRAnalyzer::routine(string word) {
 
 
 int main(int argv, char **argc) {
-    if (argv != 2) {
+    if (argv != 1) {
         cerr << "Wrong number of input files. Should be exactly one.\n";
         return -1;
     }
@@ -502,21 +417,12 @@ int main(int argv, char **argc) {
     ifstream input(argc[1]);
     Grammar g = readGrammar(input);
     g.extend();
-    //g.write();
-
     g.calcFirst();
-    //g.writeFirst();
-
     g.calcFollow();
-    //g.writeFollow();
-
     Symbol::addDot();
-
-    //SetConstruction::writeConstructedSets(g);
 
     LRAnalyzer a;
     a.buildTable(g);
-    //a.writeTable();
 
     int m;
     cin >> m;

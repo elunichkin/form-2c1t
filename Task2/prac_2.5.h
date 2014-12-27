@@ -110,8 +110,3 @@ public:
     void writeTable();
     bool routine(string w);
 };
-
-namespace Debug {
-    void writeState(const State &st);
-    string toString(const Action &act);
-}
