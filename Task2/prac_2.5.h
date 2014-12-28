@@ -1,112 +1,74 @@
 #include <vector>
+#include <stack>
 #include <map>
 #include <set>
 using namespace std;
 
-namespace Symbol {
-    int lastUnusedId = 0;
-    int epsId, endId, dotId;
-    map<string, int> nameToId;
-    map<int, string> idToName;
-    set<char> terminalChars;
-    void initialize();
-    void addDot();
-    bool isTerminal(const string &name);
-    bool isTerminal(int id);
-    bool isSpecial(int id);
-    void add(const string &name);
-}
-
-struct Rule {
-    int from;
-    vector<int> to;
-
-    Rule() {}
-    Rule(int from, vector<int> to) : from(from), to(to) {}
-    Rule(const string &s);
-};
-
-struct Grammar {
-    int start;
-    vector<Rule> rules;
-    map<int, set<int>> first;
-    map<int, set<int>> follow;
-
-    Grammar(){}
-    Grammar(int start, vector<Rule> rules) : start(start), rules(rules) {}
-
-    void extend();
-
-    bool addToFirst(int id, int x);
-    void calcFirst();
-    set<int> getFirst(int id);
-    set<int> getFirst(const vector<int> &word);
-
-    bool addToFollow(int id, int x);
-    void calcFollow();
-
-    void write();
-    void writeFirst();
-    void writeFollow();
-};
-
-struct State {
-    int from;
-    vector<int> to;
-    int lookahead;
-
-    void normalize();
-    State() {}
-    State(int from, vector<int> to, int lookahead) : from(from), to(to), lookahead(lookahead) {
-        normalize();
-    }
-    State(int from, vector<int> to_, int dotPos, int lookahead) : from(from), lookahead(lookahead), to(to_) {
-        to.insert(to.begin() + dotPos, Symbol::dotId);
-        normalize();
-    }
-
-
-    bool operator < (const State &T) const;
-
-    bool operator == (const State &T) const;
-
-    int getDotPosition();
-};
-
-typedef set<State> Set;
-
-namespace SetConstruction {
-    Set closure(Set s, Grammar &g);
-    Set goTo(Set s, int x, Grammar &g);
-    vector<Set> items(Grammar &g);
-
-    void writeConstructedSets(Grammar &g);
-}
-
-Grammar readGrammar(ifstream &input);
-
 enum ActionType {
-    ACCEPT, REDUCE, SHIFT, ERROR
+    SHIFT, REDUCE, ACCEPT, REJECT, GOTO
 };
 
 struct Action {
     ActionType type;
-    Rule reduce;
-    int shift;
-
-    Action() : type(ERROR) {}
-    explicit Action(Rule r) : type(REDUCE), reduce(r) {}
-    explicit Action(int shift) : type(SHIFT), shift(shift) {}
-    explicit Action(ActionType type) : type(type) {}
+    int number;
+    Action() {
+        type = REJECT;
+        number = 0;
+    }
+    Action(ActionType newType, int newnumber) {
+        type = newType;
+        number = newnumber;
+    }
+    Action(ActionType newType) {
+        type = newType;
+        number = 0;
+    }
 };
 
-class LRAnalyzer {
-private:
-    map<pair<int, int>, Action> action;
-    map<pair<int, int>, int> goTo;
-    vector<Set> item;
+struct State {
+    int rule;
+    int position;
+    int lookahead;
+    State(int Newrule, int Newposition, int Newlookahead) {
+        rule = Newrule;
+        position = Newposition;
+        lookahead = Newlookahead;
+    }
+    bool operator<(const State &st) const {
+        auto p1 = make_pair(make_pair(rule, position), lookahead);
+        auto p2 = make_pair(make_pair(st.rule, st.position), st.lookahead);
+        return p1 < p2;
+    }
+};
+
+class LRA {
+    string fileName;
+    vector<vector<Action> > table;
+    int numberRules;
+    int numberSymbols;
+    vector<int> leftRules;
+    vector<vector<int> > rightRules;
+    vector<vector<set<int> > > beginSuf;
+    vector<vector<bool> > beginConditionSuf;
+    map<string, int> symbols;
+    set<int> terminal;
+    int numberSets = 0;
+    map<set<State>, int> stateSets;
+    vector<set<int> > begin;
+    vector<bool> flags;
+    set<int> beginCondition;
+    vector<set<State> > states;
 public:
-    void buildTable(Grammar &g);
-    void writeTable();
-    bool routine(string w);
+    void pop(stack<int> &st, int cnt);
+    int get(const string &s);
+    void read(string grammarFile);
+    vector<vector<int> >  startGraph();
+    void dfsStartGraph(int v, vector<vector<int> > graph);
+    void dfsStart(int numberber, vector<vector<int> > graph, int letter);
+    void startSuff();
+    vector<State> getClojure(set<State> states);
+    set<State> successor(set<State> v, int letter);
+    int dfs(set<State> currStates);
+    LRA(string grammarFile);
+    bool run(string s);
 };

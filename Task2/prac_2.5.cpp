@@ -2,408 +2,262 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
-#include <iomanip>
-#include <stack>
+#include <string>
 
-void Symbol::initialize() {
-    string accepting = "qwertyuiopasdfghjklzxcvbnm()+-*";
-    for (char ch : accepting)
-        terminalChars.insert(ch);
-
-    add("");
-    add("$");
-
-    epsId = nameToId[""];
-    endId = nameToId["$"];
-}
-
-void Symbol::addDot() {
-    add(".");
-    dotId = nameToId["."];
-}
-
-bool Symbol::isTerminal(const string &name) {
-    if (name == "" || name == "$")
-        return true;
-    return name.length() == 1 && terminalChars.count(name[0]) == 1;
-}
-
-bool Symbol::isTerminal(int id) {
-    return isTerminal(idToName[id]);
-}
-
-bool Symbol::isSpecial(int id) {
-    string w = idToName[id];
-    return w == "" || w == "$" || w == ".";
-}
-
-void Symbol::add(const string &name) {
-    if (nameToId.count(name) == 0) {
-        nameToId[name] = lastUnusedId;
-        idToName[lastUnusedId] = name;
-        ++lastUnusedId;
+LRA::LRA(string grammarFile) {
+    fileName = grammarFile;
+    for (size_t i = 0; i < 26; i++) {
+        string s;
+        char current = 'a' + i;
+        s += current;
+        symbols.insert(make_pair(s, i));
+        terminal.insert(i);
     }
-}
-
-Rule::Rule(const string &s) {
-    stringstream stream;
-    string temp;
-
-    stream << s;
-
-    stream >> temp;
-    Symbol::add(temp);
-    from = Symbol::nameToId[temp];
-
-    while (stream >> temp) {
-        Symbol::add(temp);
-        to.push_back(Symbol::nameToId[temp]);
+    symbols.insert(make_pair("$", 26));
+    terminal.insert(26);
+    numberSymbols = 27;
+    read(fileName);
+    vector<vector<int> > graph = startGraph();
+    begin.resize(numberSymbols);
+    flags.resize(numberSymbols, false);
+    int numberberTerm = terminal.size();
+    for (size_t i = 0; i < numberberTerm; i++) {
+        dfsStart(i, graph, i);
     }
-
-    if (to.empty()) {
-        to.push_back(Symbol::nameToId[""]);
-    }
-}
-
-void Grammar::write() {
-    cerr << "Starting symbol is " << Symbol::idToName[start] << "\n";
-    cerr << "rules are:\n";
-    for (auto &rule : rules) {
-        cerr << Symbol::idToName[rule.from] << " -> ";
-        for (auto &x : rule.to)
-            cerr << Symbol::idToName[x] << " ";
-        cerr << "\n";
-    }
-}
-
-void Grammar::writeFirst() {
-    cerr << "FIRST:\n";
-    for (int id = 0; id < Symbol::lastUnusedId; ++id) {
-        cerr << Symbol::idToName[id] << ": ";
-        for (auto x : first[id])
-            cerr << Symbol::idToName[x] << ", ";
-        cerr << "\n";
-    }
-}
-
-void Grammar::writeFollow() {
-    cout << "FOLLOW:\n";
-    for (int id = 0; id < Symbol::lastUnusedId; ++id) {
-        cerr << Symbol::idToName[id] << ": ";
-        for (auto x : follow[id])
-            cerr << Symbol::idToName[x] << ", ";
-        cerr << "\n";
-    }
-}
-
-void Grammar::extend() {
-    Symbol::add("@");
-    int st = Symbol::nameToId["@"];
-    rules.emplace_back(st, vector<int>(1, start));
-    start = st;
-}
-
-bool Grammar::addToFirst(int id, int x) {
-    if (id == Symbol::endId || x == Symbol::endId)
-        return false;
-    if (first[id].count(x) == 0) {
-        first[id].insert(x);
-        return true;
-    }
-    return false;
-}
-
-void Grammar::calcFirst() {
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (int id = 0; id < Symbol::lastUnusedId; ++id)
-        if (Symbol::isTerminal(id)) {
-            changed |= addToFirst(id, id);
+    for (size_t i = 0; i < numberRules; i++) {
+        if (rightRules[i].size() == 0) {
+            dfsStartGraph(leftRules[i], graph);
         }
+    }
+    startSuff();
+    State startState(numberRules - 1, 0, get("$"));
+    set<State> startSet;
+    startSet.insert(startState);
+    dfs(startSet);
+}
 
-        for (auto &r : rules) {
-            if (r.to.size() == 1 && r.to[0] == Symbol::epsId) {
-                changed |= addToFirst(r.from, Symbol::epsId);
+void LRA::pop(stack<int> &st, int cnt) {
+    for (int i = 0; i < cnt; i++)
+        st.pop();
+}
+
+int LRA::get(const string &s) {
+    if (symbols.find(s) != symbols.end())
+        return symbols[s];
+    else
+        return symbols[s] = numberSymbols++;
+}
+
+void LRA::read(string grammarFile) {
+    ifstream fin(grammarFile);
+    fin >> numberRules;
+    rightRules.resize(numberRules + 1);
+    leftRules.resize(numberRules + 1);
+    for (int i = 0; i < numberRules; i++) {
+        string left, rem;
+        fin >> left;
+        int left_number = get(left);
+        leftRules[i] = left_number;
+        getline(fin, rem);
+        stringstream sin(rem);
+        string right;
+        while (sin >> right) {
+            int right_number = get(right);
+            rightRules[i].push_back(right_number);
+        }
+    }
+    leftRules[numberRules] = numberSymbols;
+    rightRules[numberRules].push_back(leftRules[0]);
+    numberRules++;
+    numberSymbols++;
+}
+
+vector<vector<int> >  LRA::startGraph() {
+    vector<vector<int> > res(numberSymbols);
+    for (int i = 0; i < numberRules; i++) {
+        if (rightRules[i].size() == 0)
+            continue;
+        int begin = rightRules[i][0];
+        res[begin].push_back(leftRules[i]);
+    }
+    return res;
+}
+
+void LRA::dfsStartGraph(int v, vector<vector<int> > graph) {
+    if (beginCondition.count(v) != 0)
+        return;
+    beginCondition.insert(v);
+    for (size_t i = 0; i < graph[v].size(); i++) {
+        int to = graph[v][i];
+        dfsStartGraph(to, graph);
+    }
+}
+
+
+void LRA::dfsStart(int numberber, vector<vector<int> > graph, int letter) {
+    if (begin[numberber].count(letter) == 1)
+        return;
+    begin[numberber].insert(letter);
+    for (size_t i = 0; i < graph[numberber].size(); i++) {
+        int vert = graph[numberber][i];
+        dfsStart(vert, graph, letter);
+    }
+}
+
+void LRA::startSuff() {
+    beginSuf.resize(numberRules);
+    beginConditionSuf.resize(numberRules);
+    for (size_t i = 0; i < numberRules; i++) {
+        beginSuf[i].resize(rightRules[i].size());
+        beginConditionSuf[i].resize(rightRules[i].size());
+        for (int j = (int)rightRules[i].size() - 1; j >= 0; j--) {
+            beginSuf[i][j] = begin[rightRules[i][j]];
+            if (beginCondition.count(rightRules[i][j]) == 1 &&
+                j != (int)rightRules[i].size() - 1) {
+                beginSuf[i][j].insert(
+                    beginSuf[i][j + 1].begin(), beginSuf[i][j + 1].end());
+                if (beginConditionSuf[i][j + 1])
+                    beginConditionSuf[i][j] = true;
             }
-            else {
-                bool containEps = true;
-                for (int i = 0; i < (int)r.to.size(); ++i) {
-                    int id = r.to[i];
+            else if (beginCondition.count(rightRules[i][j]) == 1) {
+                beginConditionSuf[i][j] = true;
+            }
+        }
+    }
+}
 
-                    for (int x : first[id])
-                        changed |= addToFirst(r.from, x);
-
-                    if (first[id].count(Symbol::epsId) == 0) {
-                        containEps = false;
-                        break;
+vector<State> LRA::getClojure(set<State> states) {
+    vector<State> result(states.begin(), states.end());
+    set<State> flagsRes(result.begin(), result.end());
+    for (size_t i = 0; i < result.size(); i++) {
+        int rule = result[i].rule;
+        int position = result[i].position;
+        int lookahead = result[i].lookahead;
+        if (position == (int)rightRules[rule].size())
+            continue;
+        int s = rightRules[rule][position];
+        if (terminal.count(s) != 0)
+            continue;
+        set<int> currentBegin;
+        if (position + 1 < (int)beginSuf[rule].size()) {
+            currentBegin = beginSuf[rule][position + 1];
+            if (beginConditionSuf[rule][position])
+                currentBegin.insert(lookahead);
+        }
+        else
+            currentBegin.insert(lookahead);
+        for (size_t j = 0; j < numberRules; j++) {
+            if (leftRules[j] == s) {
+                for (auto it = currentBegin.begin(); it != currentBegin.end(); it++) {
+                    State st(j, 0, *it);
+                    if (flagsRes.count(st) == 0) {
+                        flagsRes.insert(st);
+                        result.push_back(st);
                     }
                 }
-
-                if (containEps)
-                    changed |= addToFirst(r.from, Symbol::epsId);
             }
         }
     }
+    return result;
 }
 
-set<int> Grammar::getFirst(int id) {
-    return first[id];
-}
-
-set<int> Grammar::getFirst(const vector<int> &word) {
-    set<int> ans;
-    bool containEps = true;
-    for (int i = 0; containEps && i < (int)word.size(); ++i) {
-        int c = word[i];
-        for (int x : getFirst(c))
-        if (x != Symbol::epsId)
-            ans.insert(x);
-        containEps &= getFirst(c).count(Symbol::epsId);
-    }
-    if (containEps)
-        ans.insert(Symbol::epsId);
-    return ans;
-}
-
-bool Grammar::addToFollow(int id, int x) {
-    if (id == Symbol::epsId || x == Symbol::epsId)
-        return false;
-    if (follow[id].count(x) == 0) {
-        follow[id].insert(x);
-        return true;
-    }
-    return false;
-}
-
-void Grammar::calcFollow() {
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        changed |= addToFollow(start, Symbol::endId);
-
-        for (auto &r : rules) {
-            for (int i = 0; i + 1 < (int)r.to.size(); ++i) {
-                int id = r.to[i];
-                if (Symbol::isTerminal(id))
-                    continue;
-                for (auto &x : getFirst(r.to[i + 1]))
-                if (x != Symbol::epsId)
-                    changed |= addToFollow(id, x);
-            }
-
-            for (int i = 0; i < (int)r.to.size(); ++i) {
-                int id = r.to[i];
-                if (Symbol::isTerminal(id))
-                    continue;
-                if (i + 1 == (int)r.to.size() || getFirst(r.to[i + 1]).count(Symbol::epsId) == 1)
-                for (int x : follow[r.from])
-                    changed |= addToFollow(id, x);
-            }
-        }
-    }
-}
-
-Grammar readGrammar(ifstream &input) {
-    Grammar ans;
-    int n;
-    string temp;
-
-    input >> n;
-    getline(input, temp, '\n');
-    for (int i = 0; i < n; ++i) {
-        getline(input, temp, '\n');
-        ans.rules.emplace_back(temp);
-    }
-
-    ans.start = ans.rules.front().from;
-
-    return ans;
-}
-
-int State::getDotPosition() {
-    for (int i = 0; i < to.size(); ++i)
-    if (to[i] == Symbol::dotId)
-        return i;
-    cerr << "Invalid state has been given to getDotPosition. Aborting...\n";
-    exit(-1);
-}
-
-void State::normalize() {
-    if (lookahead == Symbol::epsId)
-        lookahead = Symbol::endId;
-}
-
-bool State::operator < (const State &T) const {
-    auto p = make_pair(from, make_pair(to, lookahead));
-    auto p1 = make_pair(T.from, make_pair(T.to, T.lookahead));
-    return p < p1;
-}
-
-bool State::operator == (const State &T) const {
-    auto p = make_pair(from, make_pair(to, lookahead));
-    auto p1 = make_pair(T.from, make_pair(T.to, T.lookahead));
-    return p == p1;
-}
-
-
-
-
-Set SetConstruction::closure(Set s, Grammar &g) {
-    while (true) {
-        vector<State> toAdd;
-        for (auto st : s) {
-            int dotPos = st.getDotPosition();
-            if (dotPos == st.to.size() - 1)
-                continue;
-            int B = st.to[dotPos + 1];
-            vector<int> suffix(st.to.begin() + dotPos + 2, st.to.end());
-            if (st.lookahead != Symbol::endId)
-                suffix.push_back(st.lookahead);
-            for (auto r : g.rules)
-            if (r.from == B)
-            for (auto b : g.getFirst(suffix))
-                toAdd.emplace_back(B, r.to, 0, b);
-        }
-
-        bool changed = false;
-        for (auto x : toAdd)
-        if (s.count(x) == 0) {
-            changed = true;
-            s.insert(x);
-        }
-
-        if (!changed)
-            return s;
-    }
-}
-
-Set SetConstruction::goTo(Set I, int x, Grammar &g) {
-    Set J;
-    for (State S : I) {
-        int dotPos = S.getDotPosition();
-
-        if (dotPos == S.to.size() - 1 || S.to[dotPos + 1] != x)
+set<State> LRA::successor(set<State> v, int letter) {
+    set<State> result;
+    for (auto it = v.begin(); it != v.end(); it++) {
+        State state = *it;
+        if (state.position == (int)rightRules[state.rule].size())
             continue;
-        swap(S.to[dotPos], S.to[dotPos + 1]);
-
-        J.insert(S);
-    }
-    J = closure(J, g);
-    return closure(J, g);
-}
-
-vector<Set> SetConstruction::items(Grammar &g) {
-    vector<Set> C;
-    State state(g.start, g.rules.back().to, 0, Symbol::endId);
-    Set st;
-    st.insert(state);
-    C.push_back(closure(st, g));
-
-    bool changed = true;
-
-    while (changed) {
-        changed = false;
-        for (int i = 0; i < C.size(); ++i) {
-            vector<Set> toAdd;
-            for (int id = 0; id < Symbol::lastUnusedId; ++id) {
-                if (Symbol::isSpecial(id))
-                    continue;
-
-                auto J = goTo(C[i], id, g);
-                if (J.size() != 0)
-                    toAdd.push_back(J);
-            }
-
-            for (auto J : toAdd)
-            if (find(C.begin(), C.end(), J) == C.end()) {
-                C.push_back(J);
-                changed = true;
-            }
+        int next_letter = rightRules[state.rule][state.position];
+        if (letter == next_letter) {
+            result.insert(State(state.rule, state.position + 1, state.lookahead));
         }
     }
-
-    return C;
+    return result;
 }
 
-void LRAnalyzer::buildTable(Grammar &g) {
-    item = SetConstruction::items(g);
-
-    for (int i = 0; i < (int)item.size(); ++i) {
-        for (auto st : item[i]) {
-            int dotPos = st.getDotPosition(), a;
-            if (dotPos == (int)st.to.size() - 1) {
-                vector<int> to(st.to.begin(), st.to.end() - 1);
-                int a = st.lookahead;
-                Rule r(st.from, to);
-
-                if (Symbol::idToName[st.from] == "@" && st.lookahead == Symbol::endId)
-                    action[make_pair(i, a)] = Action(ACCEPT);
-                else
-                    action[make_pair(i, a)] = Action(r);
-            }
-            else {
-
-                a = st.to[dotPos + 1];
-                if (!Symbol::isTerminal(a))
-                    continue;
-                auto toItem = SetConstruction::goTo(item[i], a, g);
-                if (toItem.size() == 0)
-                    continue;
-
-                int j = find(item.begin(), item.end(), toItem) - item.begin();
-                action[make_pair(i, a)] = Action(j);
-            }
-        }
-    }
-
-    for (int i = 0; i < (int)item.size(); ++i)
-    for (int id = 0; id < Symbol::lastUnusedId; ++id)
-    if (!Symbol::isTerminal(id)) {
-        auto J = SetConstruction::goTo(item[i], id, g);
-        if (J.empty())
+int LRA::dfs(set<State> currStates) {
+    vector<State> clojure = getClojure(currStates);
+    set<State> clojureSet(clojure.begin(), clojure.end());
+    if (stateSets.find(clojureSet) != stateSets.end())
+        return stateSets[clojureSet];
+    stateSets[clojureSet] = numberSets++;
+    states.push_back(clojureSet);
+    table.resize(numberSets);
+    table[numberSets - 1].resize(numberSymbols);
+    vector<int> current(numberSymbols, -1);
+    for (size_t i = 0; i < numberSymbols; i++) {
+        set<State> next = successor(clojureSet, i);
+        if (next.empty())
             continue;
-        int j = find(item.begin(), item.end(), J) - item.begin();
-        goTo[make_pair(i, id)] = j;
+        current[i] = dfs(next);
     }
-}
-
-bool LRAnalyzer::routine(string word) {
-    word = word + "$";
-    vector<int> w;
-    int ip = 0;
-    stack<int> st;
-
-    for (int i = 0; i < (int)word.length(); ++i)
-        w.push_back(Symbol::nameToId[word.substr(i, 1)]);
-
-    st.push(0);
-
-    while (true) {
-        int s = st.top();
-        int a = w[ip];
-        Action act = action[make_pair(s, a)];
-
-        if (act.type == SHIFT) {
-            st.push(a);
-            st.push(act.shift);
-            ++ip;
-        }
-        else if (act.type == REDUCE) {
-            for (int i = 0; i < (int)2 * act.reduce.to.size(); ++i)
-                st.pop();
-            s = st.top();
-            a = act.reduce.from;
-            st.push(a);
-            st.push(goTo[make_pair(s, a)]);
-        }
-        else if (act.type == ACCEPT) {
-            return true;
+    int stateNumber = stateSets[clojureSet];
+    for (size_t i = 0; i < numberSymbols; i++) {
+        if (terminal.count(i) == 0) {
+            if (current[i] != -1)
+                table[stateNumber][i] = Action(GOTO, current[i]);
         }
         else {
-            return false;
+            for (auto it = clojureSet.begin(); it != clojureSet.end(); it++) {
+                State state = *it;
+                if (state.position == (int)rightRules[state.rule].size()) {
+                    if (i == (int)terminal.size() - 1 && state.rule == numberRules - 1) {
+                        table[stateNumber][i] = Action(ACCEPT);
+                    }
+                    else if (state.lookahead == i)
+                        table[stateNumber][i] = Action(REDUCE, state.rule);
+                }
+                else {
+                    int letter = rightRules[state.rule][state.position];
+                    if (letter == i && current[letter] != -1) {
+                        table[stateNumber][i] = Action(SHIFT, current[letter]);
+                    }
+                }
+            }
+
         }
     }
+
+    return stateNumber;
+}
+
+bool LRA::run(string s) {
+    stack<int> stack;
+    stack.push(0);
+    s += "$";
+    for (size_t i = 0; i < s.length();) {
+        int cur_state = stack.top();
+        string currentSym = "";
+        currentSym += s[i];
+        int currentChar = symbols[currentSym];
+        switch (table[cur_state][currentChar].type) {
+        case SHIFT: {
+                        i++;
+                        stack.push(currentChar);
+                        stack.push(table[cur_state][currentChar].number);
+                        break;
+        }
+
+        case REDUCE: {
+                         int number = table[cur_state][currentChar].number;
+                         pop(stack, 2 * rightRules[number].size());
+                         cur_state = stack.top();
+                         stack.push(leftRules[number]);
+                         stack.push(table[cur_state][leftRules[number]].number);
+                         break;
+        }
+
+        case ACCEPT: {
+                         return true;
+        }
+
+        case REJECT: {
+                         return false;
+        }
+
+        }
+    }
+    return false;
 }
 
 
@@ -413,23 +267,14 @@ int main(int argv, char **argc) {
         return -1;
     }
 
-    Symbol::initialize();
-    ifstream input(argc[1]);
-    Grammar g = readGrammar(input);
-    g.extend();
-    g.calcFirst();
-    g.calcFollow();
-    Symbol::addDot();
-
-    LRAnalyzer a;
-    a.buildTable(g);
+    LRA a(argc[1]);
 
     int m;
     cin >> m;
     while (m--) {
         string w;
         cin >> w;
-        cout << (a.routine(w) ? "YES\n" : "NO\n");
+        cout << (a.run(w) ? "YES\n" : "NO\n");
     }
 
     return 0;
